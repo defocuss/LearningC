@@ -21,6 +21,7 @@
 #define TIMEOUTSECS 500
 
 void conf_sockaddr(struct sockaddr_in *server_addr);
+int acc_conn(int sockfd, struct pollfd *fds, int *client_count, struct sockaddr_in *client_addr, struct conn_client *clients);
 
 int main()
 {
@@ -28,7 +29,6 @@ int main()
     struct sockaddr_in server_addr, client_addr;
     struct conn_client clients[MAXCLIENTS]; // 100 clients
     struct pollfd fds[MAXCLIENTS];
-    int sin_size;
     int len, poll_structures, i, j, encontrado;
     int listen_status;
     ssize_t bytes_recieved;
@@ -80,22 +80,8 @@ int main()
 
                 // there is data to read
                 if (i==0) {
-                    // recive the data
-                    sin_size = sizeof(struct sockaddr_in);
-                    new_fd = accept(sockfd, (struct sockaddr*)&client_addr, &sin_size);
-                    if (new_fd == -1) { perror("accept"); continue;} // error cheking
-
-                    // check that server is not full
-                    if (client_count  < MAXCLIENTS) {
-                        fds[client_count].fd = new_fd;  // save the new sock descriptor
-                        fds[client_count].events = POLLIN;
-                        clients[client_count].sockfd = new_fd;
-                        strcpy(clients[client_count].name, "");
-                        client_count++;
-                        printf("A new client has connected, number of clients: %d\n", client_count - 1);
-                    } else {
-                        printf("server full\n");
-                        close(new_fd);
+                    if (acc_conn(sockfd, fds, &client_count, &client_addr, clients) == -1) {
+                        continue;
                     }
                 } else {
                     bytes_recieved = recv(fds[i].fd, &incoming_msg, sizeof(struct chat_msg), 0);
@@ -137,7 +123,32 @@ int main()
     return 1;
 }
 
-// set initial parameters for server struct
+// Accept new connection
+int acc_conn(int sockfd, struct pollfd *fds, int *client_count, struct sockaddr_in *client_addr, struct conn_client *clients) {
+    int new_fd;
+    socklen_t sin_size;
+
+    sin_size = sizeof(struct sockaddr_in);
+    new_fd = accept(sockfd, (struct sockaddr*)client_addr, &sin_size);
+    if (new_fd == -1) { perror("accept"); return -1;} // error cheking
+
+    // check that server is not full
+    if (*client_count  < MAXCLIENTS) {
+        fds[*client_count].fd     = new_fd;  // save the new sock descriptor
+        fds[*client_count].events = POLLIN;
+        clients[*client_count].sockfd = new_fd;
+        strcpy(clients[*client_count].name, "");
+        (*client_count)++;
+        printf("A new client has connected, number of clients: %d\n", *client_count - 1);
+    } else {
+        printf("server full\n");
+        close(new_fd);
+    }
+    return 0;
+}
+
+
+// Set initial parameters for server struct
 void conf_sockaddr(struct sockaddr_in *server_addr)
 {
     server_addr -> sin_family      = AF_INET; // for ipv4

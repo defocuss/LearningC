@@ -1,6 +1,6 @@
 /*
 ** client.c -- client that will send data to the server
-*/ 
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,26 +33,30 @@ int main(int argc, char *argv[])
     struct sockaddr_in server_addr; // info of the server_addr
     struct chat_msg chatmsg_sent, chatmsg_recieved;
 
+    // Get the client username
     if (argc > 1) {
         strncpy(chatmsg_sent.from, argv[1], MAX_NAME);
     } else {
         fprintf(stderr, "error al ingresar argumentos");
         exit(1);
     }
-
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) { // error check
+    
+    // Create connection socket
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
         exit(1);
     }
 
+    // Configurate the sockaddr
     conf_sockaddr(&server_addr);
 
-    // stablish the conection with the server
+    // Stablish the conection with the server
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
         perror("connect");
         exit(1);
     }
 
+    // Automatic registry of the new user
     aut_registry(sockfd, &chatmsg_sent);
 
     while(1) {
