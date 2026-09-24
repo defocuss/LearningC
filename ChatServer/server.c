@@ -1,158 +1,168 @@
-/* 
+/*
 ** server.c -- in charge of passing messages
 */
 
-#include <stdio.h>
-#include <string.h>
+#include "protocol.h" // my own protocol
 #include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netinet/in.h>
 #include <unistd.h>
-#include <poll.h>
-#include <errno.h>
-#include <stdlib.h>
-#include "protocol.h" // my own protocol
 
-#define MYPORT      3490
-#define MAXBYTES    100
-#define BACKLOG     10
-#define MAXCLIENTS  100
+#define MYPORT 3490
+#define MAXBYTES 100
+#define BACKLOG 10
+#define MAXCLIENTS 100
 #define TIMEOUTSECS 500
 
 void conf_sockaddr(struct sockaddr_in *server_addr);
-int acc_conn(int sockfd, struct pollfd *fds, int *client_count, struct sockaddr_in *client_addr, struct conn_client *clients);
+int acc_conn(int sockfd, struct pollfd *fds, int *client_count,
+             struct sockaddr_in *client_addr, struct conn_client *clients);
 
-int main()
-{
-    int sockfd, new_fd;
-    struct sockaddr_in server_addr, client_addr;
-    struct conn_client clients[MAXCLIENTS]; // 100 clients
-    struct pollfd fds[MAXCLIENTS];
-    int len, poll_structures, i, j, encontrado;
-    int listen_status;
-    ssize_t bytes_recieved;
-    int client_count = 0;
-    int optval = 1;
-    struct chat_msg incoming_msg;
+int main() {
+  int sockfd, new_fd;
+  struct sockaddr_in server_addr, client_addr;
+  struct conn_client clients[MAXCLIENTS]; // 100 clients
+  struct pollfd fds[MAXCLIENTS];
+  int len, poll_structures, i, j, encontrado;
+  int listen_status;
+  ssize_t bytes_recieved;
+  int client_count = 0;
+  int optval = 1;
+  struct chat_msg incoming_msg;
 
+  if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    perror("Error al crear el socket");
+    exit(EXIT_FAILURE);
+  }
 
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("Error al crear el socket");
-        exit(EXIT_FAILURE);
+  setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+  conf_sockaddr(&server_addr);
+
+  if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) ==
+      -1) {
+    perror("bind");
+    exit(1);
+  }
+
+  if (listen(sockfd, BACKLOG) == -1) {
+    perror("listen");
+    exit(1);
+  }
+
+  // initialize the fds
+  for (i = 0; i < MAXCLIENTS; i++) {
+    fds[i].fd = -1;
+    fds[i].events = POLLIN;
+  }
+
+  fds[0].fd = sockfd;
+  client_count = 1;
+
+  printf("Servidor de chat iniciado en el puerto %d...\n", MYPORT);
+
+  while (1) {
+    poll_structures = poll(fds, client_count, TIMEOUTSECS);
+    if (poll_structures == -1) {
+      perror("poll");
+      continue;
     }
 
-    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-    conf_sockaddr(&server_addr);
+    if (poll_structures > 0) {
+      for (i = 0; i < client_count; i++) {
 
-    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
-        perror("bind");
-        exit(1);
-    }
-
-    if (listen(sockfd, BACKLOG) == -1) {
-        perror("listen");
-        exit(1);
-    }
-
-    // initialize the fds
-    for (i=0; i<MAXCLIENTS; i++) {
-        fds[i].fd = -1;
-        fds[i].events = POLLIN;
-    }
-
-    fds[0].fd = sockfd;
-    client_count = 1;
-
-    printf("Servidor de chat iniciado en el puerto %d...\n", MYPORT);
-
-    while (1) {
-        poll_structures = poll(fds, client_count, TIMEOUTSECS);
-        if (poll_structures == -1) {perror("poll"); continue;}
-
-        if (poll_structures > 0) {
-            for (i=0; i<client_count; i++) {
-                
-                // nothing to do with the descriptor
-                if (!(fds[i].revents & POLLIN)) {
-                    continue;
-                }
-
-                // there is data to read
-                if (i==0) {
-                    if (acc_conn(sockfd, fds, &client_count, &client_addr, clients) == -1) {
-                        continue;
-                    }
-                } else {
-                    bytes_recieved = recv(fds[i].fd, &incoming_msg, sizeof(struct chat_msg), 0);
-
-                    if (bytes_recieved <= 0) {
-                        close(fds[i].fd);
-                        client_count--;
-                        fds[i] = fds[client_count];
-                        clients[i] = clients[client_count];
-                        fds[client_count].fd = -1; // to clean the free space
-                        i--;
-                        printf("failed to recieve message\n");
-                    } else {
-                        // automatic name configuration
-                        if (strcmp(incoming_msg.to, "server") == 0) {
-                            strncpy(clients[i].name, incoming_msg.from, MAX_NAME);
-                            continue;
-                        }
-
-                        // search for the reciever
-                        encontrado = 0;
-                        printf("Trying to find: (%s)\n", incoming_msg.to);
-                        for (j=0; j < client_count; j++) {
-                            if (strcmp(clients[j].name, incoming_msg.to) == 0) {
-                                // send the message to the new client
-                                send(clients[j].sockfd, &incoming_msg, sizeof(struct chat_msg), 0);
-                                encontrado = 1;
-                                break;
-                            }
-                        }
-                        if (encontrado == 0){
-                            printf("Reciever not found\n");
-                        }
-                    }
-                }
-            }
+        // nothing to do with the descriptor
+        if (!(fds[i].revents & POLLIN)) {
+          continue;
         }
+
+        // there is data to read
+        if (i == 0) {
+          if (acc_conn(sockfd, fds, &client_count, &client_addr, clients) ==
+              -1) {
+            continue;
+          }
+        } else {
+          bytes_recieved =
+              recv(fds[i].fd, &incoming_msg, sizeof(struct chat_msg), 0);
+
+          if (bytes_recieved <= 0) {
+            close(fds[i].fd);
+            client_count--;
+            fds[i] = fds[client_count];
+            clients[i] = clients[client_count];
+            fds[client_count].fd = -1; // to clean the free space
+            i--;
+            printf("failed to recieve message\n");
+          } else {
+            // automatic name configuration
+            if (strcmp(incoming_msg.to, "server") == 0) {
+              strncpy(clients[i].name, incoming_msg.from, MAX_NAME);
+              continue;
+            }
+
+            // search for the reciever
+            encontrado = 0;
+            printf("Trying to find: (%s)\n", incoming_msg.to);
+            for (j = 0; j < client_count; j++) {
+              if (strcmp(clients[j].name, incoming_msg.to) == 0) {
+                // send the message to the new client
+                send(clients[j].sockfd, &incoming_msg, sizeof(struct chat_msg),
+                     0);
+                encontrado = 1;
+                break;
+              }
+            }
+            if (encontrado == 0) {
+              printf("Reciever not found\n");
+            }
+          }
+        }
+      }
     }
-    return 1;
+  }
+  return 1;
 }
 
 // Accept new connection
-int acc_conn(int sockfd, struct pollfd *fds, int *client_count, struct sockaddr_in *client_addr, struct conn_client *clients) {
-    int new_fd;
-    socklen_t sin_size;
+int acc_conn(int sockfd, struct pollfd *fds, int *client_count,
+             struct sockaddr_in *client_addr, struct conn_client *clients) {
+  int new_fd;
+  socklen_t sin_size;
 
-    sin_size = sizeof(struct sockaddr_in);
-    new_fd = accept(sockfd, (struct sockaddr*)client_addr, &sin_size);
-    if (new_fd == -1) { perror("accept"); return -1;} // error cheking
+  sin_size = sizeof(struct sockaddr_in);
+  new_fd = accept(sockfd, (struct sockaddr *)client_addr, &sin_size);
+  if (new_fd == -1) {
+    perror("accept");
+    return -1;
+  } // error cheking
 
-    // check that server is not full
-    if (*client_count  < MAXCLIENTS) {
-        fds[*client_count].fd     = new_fd;  // save the new sock descriptor
-        fds[*client_count].events = POLLIN;
-        clients[*client_count].sockfd = new_fd;
-        strcpy(clients[*client_count].name, "");
-        (*client_count)++;
-        printf("A new client has connected, number of clients: %d\n", *client_count - 1);
-    } else {
-        printf("server full\n");
-        close(new_fd);
-    }
-    return 0;
+  // check that server is not full
+  if (*client_count < MAXCLIENTS) {
+    fds[*client_count].fd = new_fd; // save the new sock descriptor
+    fds[*client_count].events = POLLIN;
+    clients[*client_count].sockfd = new_fd;
+    strcpy(clients[*client_count].name, "");
+    (*client_count)++;
+    printf("A new client has connected, number of clients: %d\n",
+           *client_count - 1);
+  } else {
+    printf("server full\n");
+    close(new_fd);
+  }
+  return 0;
 }
 
-
 // Set initial parameters for server struct
-void conf_sockaddr(struct sockaddr_in *server_addr)
-{
-    server_addr -> sin_family      = AF_INET; // for ipv4
-    server_addr -> sin_port        = htons(MYPORT);
-    server_addr -> sin_addr.s_addr = htonl(INADDR_ANY); // with this i select my own ip
-    memset(&(server_addr -> sin_zero),'\0', 8);
+void conf_sockaddr(struct sockaddr_in *server_addr) {
+  server_addr->sin_family = AF_INET; // for ipv4
+  server_addr->sin_port = htons(MYPORT);
+  server_addr->sin_addr.s_addr =
+      htonl(INADDR_ANY); // with this i select my own ip
+  memset(&(server_addr->sin_zero), '\0', 8);
 }
