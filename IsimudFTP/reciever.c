@@ -1,0 +1,100 @@
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include "protocol.h"
+
+#define PORT 3490
+#define BACKLOG 10
+
+void conf_sockaddr(struct sockaddr_in *from_addr);
+static int recv_all(int client, void *buf, size_t len);
+
+int main(int argc, char *argv[]) {
+    int i = 0, sockfd, client, optval = 1;
+    struct sockaddr_in from_addr;
+    socklen_t sin_size;
+
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("socket");
+        exit(1);
+    }
+
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    conf_sockaddr(&from_addr);
+
+    if (bind(sockfd, (struct sockaddr *)&from_addr, sizeof(struct sockaddr)) == -1) {
+        perror("bind");
+        exit(1);
+    }
+
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        exit(1);
+    }
+
+    sin_size = sizeof(struct sockaddr_in);
+    client = accept(sockfd, (struct sockaddr*)&from_addr, &sin_size);
+    if (client == -1) {
+        perror("accept");
+        exit(1);
+    }
+
+    struct header h;
+    recv_all(client, &h, sizeof(h));
+    h.name[MAX_NAME - 1] = '\0';
+
+    if (strchr(h.name, '/') != NULL) {
+        fprintf(stderr, "nombre invalido\n");
+        exit(1);
+    }
+
+    unsigned char chunk[CHUNK];
+    uint64_t off = 0;
+    int count = 0;
+
+    FILE *out = fopen(h.name, "wb");
+    if (out == NULL) {
+        perror("fopen");
+        exit(1);
+    }
+
+    while (off < h.file_size) {
+        size_t want;
+        if (h.file_size - off < CHUNK) {
+            want = h.file_size - off;
+        } else want = CHUNK;
+
+        if (recv_all(client, chunk, want) == -1) break;
+        fwrite(chunk, 1, want, out);
+        off += want;
+    }
+    printf("All bytes received correctly\n");
+
+    fclose(out);
+
+    return 0;
+
+}
+
+static int recv_all(int client, void *buf, size_t len) {
+    unsigned char *p = buf;
+    while (len > 0) {
+        ssize_t n = recv(client, p, len, 0);
+        if (n <= 0) return -1;
+        p += n;
+        len -= n;
+    }
+    return 0;
+}
+
+void conf_sockaddr(struct sockaddr_in *from_addr) {
+    from_addr -> sin_family = AF_INET;
+    from_addr -> sin_port = htons(PORT);
+    from_addr -> sin_addr.s_addr = INADDR_ANY;
+    memset(&(from_addr -> sin_zero), '\0', 8);
+}
+
