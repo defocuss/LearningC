@@ -4,23 +4,29 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include "protocol.h"
 
 #define PORT 3490
 
-void conf_sockaddr(struct sockaddr_in *to_addr);
+void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip);
 static int send_all(int client, const void *buf, size_t len);
 
 int main(int argc, char *argv[]) {
     int sockfd;
     struct sockaddr_in to_addr;
 
+    if (argc < 2) {
+        fprintf(stderr, "uso: %s <ip_destino>\n", argv[0]);
+        exit(1);
+    }
+
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
         exit(1);
     }
 
-    conf_sockaddr(&to_addr);
+    conf_sockaddr(&to_addr, argv[1]);
 
     if (connect(sockfd, (struct sockaddr *)&to_addr, sizeof(struct sockaddr)) == -1) {
         perror("connect");
@@ -67,10 +73,14 @@ static int send_all(int client, const void *buf, size_t len) {
     return 0;
 }
 
-void conf_sockaddr(struct sockaddr_in *to_addr) {
+void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip) {
     to_addr -> sin_family = AF_INET;
     to_addr -> sin_port = htons(PORT);
-    to_addr -> sin_addr.s_addr = INADDR_ANY;
     memset(&(to_addr -> sin_zero), '\0', 8);
+
+    if (inet_pton(AF_INET, ip, &to_addr->sin_addr) != 1) {
+        fprintf(stderr, "IP inválida: %s\n", ip);
+        exit(1);
+    }
 }
 
