@@ -20,9 +20,4 @@ struct header {
     uint64_t file_size; // 8 bytes
 };
 
-struct file {
-    struct header header;
-    unsigned char chunk[CHUNK]; // information
-};
-
 #endif

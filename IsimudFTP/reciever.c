@@ -7,14 +7,15 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include "protocol.h"
+#include "reciever.h"
 
 #define BACKLOG 10
 
-void conf_sockaddr(struct sockaddr_in *from_addr);
+static void conf_sockaddr(struct sockaddr_in *from_addr);
 static int recv_all(int client, void *buf, size_t len);
 static void *discovery_responder(void *arg);
 
-int main(int argc, char *argv[]) {
+int reciever(void) {
     int i = 0, sockfd, client, optval = 1;
     struct sockaddr_in from_addr;
     socklen_t sin_size;
@@ -49,6 +50,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    printf("Connection established with sender, waiting for data...\n");
     struct header h;
     recv_all(client, &h, sizeof(h));
     h.name[MAX_NAME - 1] = '\0';
@@ -83,7 +85,6 @@ int main(int argc, char *argv[]) {
     fclose(out);
 
     return 0;
-
 }
 
 static void *discovery_responder(void *arg) {
@@ -125,7 +126,7 @@ static int recv_all(int client, void *buf, size_t len) {
     return 0;
 }
 
-void conf_sockaddr(struct sockaddr_in *from_addr) {
+static void conf_sockaddr(struct sockaddr_in *from_addr) {
     from_addr -> sin_family = AF_INET;
     from_addr -> sin_port = htons(PORT);
     from_addr -> sin_addr.s_addr = INADDR_ANY;

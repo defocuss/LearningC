@@ -9,13 +9,14 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include "protocol.h"
+#include "sender.h"
 
-void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip);
+static void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip);
 static FILE * send_header(const char *f_path, int sockfd, struct header *h);
 static int send_all(int client, const void *buf, size_t len);
 static char *discover_receiver(void);
 
-int main(int argc, char *argv[]) {
+int sender(void) {
     int sockfd;
     struct sockaddr_in to_addr;
 
@@ -86,6 +87,8 @@ static char *discover_receiver(void) {
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+    printf("Receiver found at IP: %s\n", ip);
+
     return strdup(ip);
 }
 
@@ -121,7 +124,7 @@ static int send_all(int client, const void *buf, size_t len) {
     return 0;
 }
 
-void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip) {
+static void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip) {
     to_addr -> sin_family = AF_INET;
     to_addr -> sin_port = htons(PORT);
     memset(&(to_addr -> sin_zero), '\0', 8);
