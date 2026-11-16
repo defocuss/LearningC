@@ -7,7 +7,6 @@
 #include <netinet/in.h>
 #include "protocol.h"
 
-#define PORT 3490
 #define BACKLOG 10
 
 void conf_sockaddr(struct sockaddr_in *from_addr);

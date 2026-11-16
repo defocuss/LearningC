@@ -7,15 +7,13 @@
 #include <arpa/inet.h>
 #include "protocol.h"
 
-#define PORT 3490
-
 void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip);
+static FILE * send_header(const char *f_path, int sockfd, struct header *h);
 static int send_all(int client, const void *buf, size_t len);
 
 int main(int argc, char *argv[]) {
     int sockfd;
     struct sockaddr_in to_addr;
-
     if (argc < 2) {
         fprintf(stderr, "uso: %s <ip_destino>\n", argv[0]);
         exit(1);
@@ -33,21 +31,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    FILE *fptr = fopen("video.mp4", "rb");
-
-    if (fptr == NULL) {
-        perror("fopen");
-        return -1;
-    }
-
     struct header h = {0};
-    strncpy(h.name, "video.mp4", MAX_NAME - 1);
-    h.name_size = strlen(h.name);
-    fseek(fptr, 0, SEEK_END);
-    h.file_size = ftell(fptr);
-    rewind(fptr);
-
-    send_all(sockfd, &h, sizeof(h));
+    FILE *fptr = send_header("video.mp4", sockfd, &h);
 
     unsigned char chunk[CHUNK];
     ssize_t n;
@@ -57,8 +42,30 @@ int main(int argc, char *argv[]) {
     }
     printf("All bytes sended correctly");
 
+    fclose(fptr);
+
     return 0;
 
+}
+
+// Function to open the connection and send the header
+static FILE * send_header(const char *f_path, int sockfd, struct header *h) {
+    FILE *fptr = fopen(f_path, "rb");
+
+    if (fptr == NULL) {
+        perror("fopen");
+        exit(1);
+    }
+
+    strncpy(h -> name, f_path, MAX_NAME - 1);
+    h -> name_size = strlen(h -> name);
+    fseek(fptr, 0, SEEK_END);
+    h -> file_size = ftell(fptr);
+    rewind(fptr);
+
+    send_all(sockfd, h, sizeof(*h));
+
+    return fptr;
 }
 
 // To ensure all packets are send

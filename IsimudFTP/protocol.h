@@ -6,6 +6,7 @@
 #define PROTOCOL_H
 
 #include <stdint.h>
+#define PORT 3490
 #define MAX_NAME 200
 #define CHUNK 64000 // Bytes
 
