@@ -5,12 +5,14 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include "protocol.h"
 
 #define BACKLOG 10
 
 void conf_sockaddr(struct sockaddr_in *from_addr);
 static int recv_all(int client, void *buf, size_t len);
+static void *discovery_responder(void *arg);
 
 int main(int argc, char *argv[]) {
     int i = 0, sockfd, client, optval = 1;
@@ -34,6 +36,11 @@ int main(int argc, char *argv[]) {
         perror("listen");
         exit(1);
     }
+
+    // Start the discovery responder in a separate thread
+    pthread_t tid;
+    pthread_create(&tid, NULL, discovery_responder, NULL);
+    pthread_detach(tid);
 
     sin_size = sizeof(struct sockaddr_in);
     client = accept(sockfd, (struct sockaddr*)&from_addr, &sin_size);
@@ -77,6 +84,34 @@ int main(int argc, char *argv[]) {
 
     return 0;
 
+}
+
+static void *discovery_responder(void *arg) {
+    (void)arg;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(DISCOVERY_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        perror("bind discovery");
+        return NULL;
+    }
+
+    char buf[64];
+    struct sockaddr_in from;
+    for (;;) {
+        socklen_t len = sizeof(from);
+        ssize_t n = recvfrom(s, buf, sizeof(buf) - 1, 0,
+                             (struct sockaddr *)&from, &len);
+        if (n <= 0) continue;
+        buf[n] = '\0';
+        if (strcmp(buf, DISCOVERY_MSG) == 0)
+            sendto(s, DISCOVERY_REPLY, strlen(DISCOVERY_REPLY), 0,
+                   (struct sockaddr *)&from, len);
+    }
 }
 
 static int recv_all(int client, void *buf, size_t len) {

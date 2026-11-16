@@ -10,6 +10,10 @@
 #define MAX_NAME 200
 #define CHUNK 64000 // Bytes
 
+#define DISCOVERY_PORT 3491
+#define DISCOVERY_MSG   "ISIMUD_DISCOVER"
+#define DISCOVERY_REPLY "ISIMUD_HERE"
+
 struct header {
     char     name[MAX_NAME];
     uint8_t  name_size; // 1 bytes

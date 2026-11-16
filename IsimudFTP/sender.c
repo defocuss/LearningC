@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,26 +6,31 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include "protocol.h"
 
 void conf_sockaddr(struct sockaddr_in *to_addr, const char *ip);
 static FILE * send_header(const char *f_path, int sockfd, struct header *h);
 static int send_all(int client, const void *buf, size_t len);
+static char *discover_receiver(void);
 
 int main(int argc, char *argv[]) {
     int sockfd;
     struct sockaddr_in to_addr;
-    if (argc < 2) {
-        fprintf(stderr, "uso: %s <ip_destino>\n", argv[0]);
-        exit(1);
-    }
 
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
         exit(1);
     }
 
-    conf_sockaddr(&to_addr, argv[1]);
+    char *ip = discover_receiver();
+    if (ip == NULL) {
+        fprintf(stderr, "No se encontró ningún receiver\n");
+        exit(1);
+    }
+    conf_sockaddr(&to_addr, ip);
+    free(ip);
 
     if (connect(sockfd, (struct sockaddr *)&to_addr, sizeof(struct sockaddr)) == -1) {
         perror("connect");
@@ -40,12 +46,47 @@ int main(int argc, char *argv[]) {
     while ((n = fread(chunk, 1, CHUNK, fptr)) > 0 ) {
         send_all(sockfd, chunk, n);
     }
+    close(sockfd);
     printf("All bytes sended correctly");
 
     fclose(fptr);
 
     return 0;
 
+}
+
+// Function to discover the receiver in the network using UDP broadcast
+static char *discover_receiver(void) {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s == -1) { perror("socket"); return NULL; }
+
+    int yes = 1;
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+    struct timeval tv = { .tv_sec = 2 };
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in bc = {0};
+    bc.sin_family = AF_INET;
+    bc.sin_port = htons(DISCOVERY_PORT);
+    bc.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+
+    sendto(s, DISCOVERY_MSG, strlen(DISCOVERY_MSG), 0,
+           (struct sockaddr *)&bc, sizeof(bc));
+
+    char buf[64];
+    struct sockaddr_in from;
+    socklen_t len = sizeof(from);
+    ssize_t n = recvfrom(s, buf, sizeof(buf) - 1, 0,
+                         (struct sockaddr *)&from, &len);
+    close(s);
+
+    if (n <= 0) return NULL;
+    buf[n] = '\0';
+    if (strcmp(buf, DISCOVERY_REPLY) != 0) return NULL;
+
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+    return strdup(ip);
 }
 
 // Function to open the connection and send the header
